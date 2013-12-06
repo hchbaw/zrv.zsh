@@ -24,6 +24,7 @@ Please start a server by `autoload` and call `zrv`.
 (It is mandatory on the server side, sorry)
 % git clone https://github.com/hchbaw/zrv.zsh.git
 % fpath+="$(echo ${:-./zrv.zsh}(:A))"
+% autoload -Uz zrv
 % zrv
 ----
 
