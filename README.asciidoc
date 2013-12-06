@@ -11,12 +11,12 @@ Thank you very much tarruda! I appreciate the zsh-autosuggestions's codes a lot.
 ////
 ////
 
-.zrv.zsh demo
-image:http://img.youtube.com/vi/AfPgznZvBr8/mqdefault.jpg["zrv.zsh", width=320, link="https://www.youtube.com/watch?v=AfPgznZvBr8"]
+.zrv.zsh demo (link:https://www.youtube.com/watch?v=AfPgznZvBr8h[https://www.youtube.com/watch?v=AfPgznZvBr8h]):
+image:https://img.youtube.com/vi/AfPgznZvBr8/mqdefault.jpg["zrv.zsh", width=320, link="https://www.youtube.com/watch?v=AfPgznZvBr8"]
 
 Usage
 -----
-Please start a server by `autoload` and coll `zrv`.
+Please start a server by `autoload` and call `zrv`.
 
 [source]
 ----
