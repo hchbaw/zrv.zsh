@@ -1,0 +1,183 @@
+#autoload
+# toy zle server
+
+# Author: Takeshi Banse <takebi@laafc.net>
+# License: MIT
+
+# Thank you very much tarruda!
+# I appreciate the zsh-autosuggestions's codes a lot.
+
+# Code
+
+[[ -n "${@-}" ]] && ((${#${(M)@:#(-h|--help)}}!=0)) && {
+  cat <<'EOT'
+usage: zrv [<socketname]> [<socketdir>] [<port>] [<no-override-zle-line-edit>]
+  <socketname>: socket filename inside <socketdir> (default: "delauft")
+  <socketdir>:  socket directory (default: /tmp/zrv-${UID})
+  <port>:       port if make zrv to listen over TCP (defualt: "" which use
+                `zsocket' rather than `ztcp')
+  <no-override-zle-line-edit>:
+                zrv needs to `zle recursive-edit', it must override the
+                sepcial widget `zle-line-init'. If you don't like override
+                the `zle-line-init', please specify 'no'
+EOT
+  return 129
+}
+
+zrv-raw () {
+  setopt localoptions errreturn no_ksharrays no_kshzerosubscript
+  local zrvlisten="$1"
+  local zrvaccept="$2"
+  local zrvclose="$3"
+  local zlesock="$4"
+  local respond="$5"
+
+  $zrvlisten; local -i srvfd=$REPLY
+
+  # XXX: raceiness
+  zsocket -v ${zlesock}; local -i zlefd=$REPLY
+
+  local -a zrvfds
+  local -A zrvbuffers
+  zrv-srv-client-- () {
+    : ${(A)zrvfds::=${zrvfds:#$1}}
+    noglob unset zrvbuffers[$1]
+    $zrvclose $1
+  }
+
+  local -A result
+  zrvfds+=$srvfd
+  while zselect -A result -r ${zrvfds}; do
+    local -i fd; for fd in ${(k)result}; do
+      if ((fd==srvfd)); then
+        $zrvaccept $srvfd && zrvfds+=$REPLY
+      else
+        zrv-respond-maybe $respond $fd $zlefd zrvbuffers zrv-srv-client--
+      fi
+    done
+  done
+}
+
+zrv-respond-maybe () {
+  local respond=$1
+  local reqfd=$2
+  local zlefd=$3
+  local zrvbuffersplace=$4
+  local close=$5
+  local -A tmp; : ${(AA)tmp::=${(Pkv)zrvbuffersplace}}
+
+  local s=''; sysread -i $reqfd s && {
+    tmp[$reqfd]+="$s"; : ${(PQAA)zrvbuffersplace::=${(qkv)tmp}}
+    return
+  }
+
+  {
+    [[ -z "${tmp[$reqfd]-}" ]] || $respond $zlefd <<<${tmp[$reqfd]-}
+  } always {
+    $close $reqfd
+  }
+}
+
+zrv-respond-zle () {
+  local line=''; while read -r line; do
+    [[ -z "$line" ]] || print -r -u "$1" "$line"
+  done
+}
+
+zrv-zle () {
+  local line=''; read -r -u "$1" line
+  BUFFER="$line"
+  zle accept-line
+  zle -Rc
+  zrv-zle-flush # XXX
+}
+
+zrv () {
+  setopt localoptions errreturn
+  zmodload zsh/net/socket
+  zmodload zsh/system
+  zmodload zsh/zselect
+  autoload -Uz add-zsh-hook
+  local label="$1"
+  local sockdir="$2"
+  local port="${3-}"
+
+  () { mkdir -p "$1"; chmod 700 "$1" } "${sockdir}"
+  eval "zrv-exit-1 () { rm -rf \"$sockdir\" }"; add-zsh-hook zshexit zrv-exit-1
+
+  local zlesock="${sockdir}/${label}-zle"
+
+  local REPLY=''
+  () { rm -f "$1"; zsocket -v -l "$1" } "${zlesock}"
+  local -i zlefd=$REPLY
+
+  () {
+    setopt localoptions no_notify no_monitor
+    if [[ -z "$port" ]]; then
+      eval "\
+      zrv-listen () { () { rm -f \"\$1\";zsocket -v -l \"\$1\" } \
+        \"${sockdir}/${label}\" }"
+      zrv-accept () { zsocket -a "$1" }
+      zrv-close  () { exec {1}>&- }
+    else
+      zmodload zsh/net/tcp
+      eval "\
+      zrv-listen () { ztcp -v -l \"${port}\" }"
+      zrv-accept () { ztcp -a "$1" }
+      zrv-close  () { ztcp -v -c "$1" }
+    fi
+    zrv-raw \
+      zrv-listen zrv-accept zrv-close \
+      "$zlesock" zrv-respond-zle &
+  }
+  local child=$!
+  eval "zrv-exit-2 () { kill $child }"; add-zsh-hook zshexit zrv-exit-2
+  () {
+    local pat='zrv-*'
+    local -a es; : ${(A)es::=${zshexit_functions:#${~pat}}}
+    local -a zs; : ${(A)zs::=${(M)zshexit_functions:#${~pat}}}
+    es+=(${(On)zs}); : ${(A)zshexit_functions::=${(A)es}}
+  }
+
+  zsocket -v -a ${zlefd} && zle -F $REPLY zrv-zle
+}
+
+# Entry point
+() {
+setopt localoptions no_shwordsplit
+
+[[ -z "${TMUX-}" ]] && {
+  echo "fatal: Not inside tmux, sorry."
+  return 128
+}
+
+[[ -n "${ZRV_TMUX_DASHT-}" ]] || {
+  ZRV_TMUX_DASHT="$(command tmux display-message -p "#{pane_id}")"
+}
+
+zrv-zle-flush () {
+  tmux send-keys -t "${ZRV_TMUX_DASHT}" $'\C-v ' # XXX
+}
+
+local label="${${${1-}:-default}//\//_}"
+local sockdir="${${2-}:-/tmp/zrv-${UID}}"
+
+zrv "$label" "$sockdir" "${3-}"
+
+[[ -z "${4-}" ]] && {
+  # from https://github.com/hchbaw/auto-fu.zsh/tree/hold/recursive-edit-fu
+  zle -N zle-line-init; zle-line-init () {
+    zle recursive-edit
+    local ret=$?
+    # XXX: this is not quite accurate though.
+    if ((ret==0)); then
+      local eof=$'\C-d'
+      [[ ${KEYS} == $eof ]] && {zle -U $eof; return ret} || zle accept-line
+    else
+      zle -U $'\C-g'
+    fi
+    return ret
+  }
+}
+
+} "$@"
