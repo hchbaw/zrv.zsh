@@ -1,0 +1,43 @@
+////
+////
+
+.zrv.zsh demo
+image:http://img.youtube.com/vi/AfPgznZvBr8/mqdefault.jpg["zrv.zsh", width=320, link="https://www.youtube.com/watch?v=AfPgznZvBr8"]
+
+Usage
+-----
+Please start a server by `autoload` and coll `zrv`.
+
+[source]
+----
+% tmux
+(It is mandatory on the server side, sorry)
+% git clone https://github.com/hchbaw/zrv.zsh.git
+% fpath+="$(echo ${:-./zrv.zsh}(:A))"
+% zrv
+----
+
+Typical client side's code looks like below.
+
+[source,zsh]
+----
+zrv-client () {
+  local -i REPLY;
+  setopt localoptions errreturn
+  zmodload zsh/net/socket
+  zsocket /tmp/zrv-${UID}/default
+  print -u $REPLY "$1"
+  exec {REPLY}>&- # Please don't forget to close this file descriptor.
+}
+----
+
+Then, communicate to the `zrv` server.
+
+[source]
+----
+% zrv-client "echo hi"
+⇒ This sends "echo hi" to the server and the server evaluates it.
+% zrv-client "sleep 5
+echo hihi"
+⇒ This sends these commands and the server evaluates each line one-by-one.
+----
